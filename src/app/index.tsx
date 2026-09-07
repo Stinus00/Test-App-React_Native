@@ -13,6 +13,9 @@ function getDevMenuHint() {
   if (Platform.OS === 'web') {
     return <ThemedText type="small">use browser devtools</ThemedText>;
   }
+  if(Platform.isTV === true) {
+    return <ThemedText type="small">use remote control</ThemedText>;
+  }
   if (Device.isDevice) {
     return (
       <ThemedText type="small">

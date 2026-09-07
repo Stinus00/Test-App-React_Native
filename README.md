@@ -16,6 +16,20 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
+## Run on Apple TV
+
+`react-native-video` is a native module and is not included in Expo Go. Generate
+the tvOS native project and run a development build instead:
+
+```bash
+EXPO_TV=1 npx expo prebuild --clean
+EXPO_TV=1 npx expo run:ios
+```
+
+Use `npx expo start --dev-client` after the first build to reload JavaScript in
+the development build. Run `unset EXPO_TV && npx expo prebuild --clean` to
+regenerate the project for phone targets.
+
 In the output, you'll find options to open the app in a
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)

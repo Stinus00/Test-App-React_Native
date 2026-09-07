@@ -34,7 +34,7 @@ export default function TabTwoScreen() {
 
   return (
     <ScrollView
-      style={[styles.scrollView, { backgroundColor: theme.background }]}
+      style={[styles.scrollView, { backgroundColor: theme.backgroundColor}]}
       contentInset={insets}
       contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
       <ThemedView style={styles.container}>

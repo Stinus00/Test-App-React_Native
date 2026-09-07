@@ -61,5 +61,8 @@ export const Spacing = {
   six: 64,
 } as const;
 
-export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
-export const MaxContentWidth = 800;
+export const BottomTabInset = Platform.select({
+  ios: Platform.isTV ? 0 : 50,
+  android: Platform.isTV ? 0 : 80
+}) ?? 0;
+export const MaxContentWidth = Platform.isTV ? 1200 : 800;
