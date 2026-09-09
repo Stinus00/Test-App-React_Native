@@ -1,5 +1,5 @@
 import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedView } from '@/components/themed-view';
@@ -14,15 +14,19 @@ type MediaItem =
   | { type: 'image'; source: number; duration: number };
 
 const mediaItems: MediaItem[] = [
-  { type: 'image', source: require('@/assets/images/react-logo.png'), duration: 4000},
-  { type: 'image', source: require('@/assets/images/logo-glow.png'), duration: 4000 },
-  { type: 'image', source: require('@/assets/images/react-logo.png'), duration: 4000},
-  { type: 'image', source: require('@/assets/images/logo-glow.png'), duration: 4000 },
+  // { type: 'image', source: require('@/assets/images/react-logo.png'), duration: 4000},
+  // { type: 'image', source: require('@/assets/images/logo-glow.png'), duration: 4000 },
+  // { type: 'image', source: require('@/assets/images/react-logo.png'), duration: 4000},
+  // { type: 'image', source: require('@/assets/images/logo-glow.png'), duration: 4000 },
   { type: 'video', source: require('@/assets/videos/test2.mp4') },
-  { type: 'image', source: require('@/assets/images/react-logo.png'), duration: 6000 },
-  { type: 'image', source: require('@/assets/images/logo-glow.png'), duration: 2000 },
+  // { type: 'image', source: require('@/assets/images/react-logo.png'), duration: 6000 },
+  // { type: 'image', source: require('@/assets/images/logo-glow.png'), duration: 2000 },
   { type: 'video', source: require('@/assets/videos/test3.mp4') },
-  { type: 'video', source: require('@/assets/videos/test.mp4') },
+  { type: 'video', source: require('@/assets/videos/test6.mp4') },
+  { type: 'video', source: require('@/assets/videos/test1.mp4') },
+  { type: 'video', source: require('@/assets/videos/test8.mp4') },
+  { type: 'video', source: require('@/assets/videos/test9.mp4') },
+  { type: 'video', source: require('@/assets/videos/test10.mp4') },
 ];
 
 const initialVideoSource = mediaItems[0].type === 'video' ? mediaItems[0].source : null;
@@ -36,24 +40,37 @@ export default function Testing3() {
 
   const player1 = useVideoPlayer(initialVideoSource, (player) => {
     player.muted = true;
+    player.bufferOptions = {
+      maxBufferBytes: 8 * 1024 * 1024,
+      minBufferForPlayback: 1,
+      preferredForwardBufferDuration: 8,
+    };
   });
   const player2 = useVideoPlayer(null, (player) => {
     player.muted = true;
+    player.bufferOptions = {
+      maxBufferBytes: 8 * 1024 * 1024,
+      minBufferForPlayback: 1,
+      preferredForwardBufferDuration: 8,
+    };
   });
 
   const [currentPlayer, setCurrentPlayer] = useState(player1);
   const [currentMedia, setCurrentMedia] = useState(mediaItems[0]);
   const activePlayerIndex = useRef(0);
   const currentMediaIndex = useRef(0);
-  const playerMediaIndexes = useRef<(number | null)[]>([null, null]);
+  const playerMediaIndexes = useRef<(number | null)[]>([0, null]);
+  const loadingMediaIndexes = useRef<(number | null)[]>([0, null]);
   const playerEnded = useRef([false, false]);
+  const advancing = useRef(false);
   const imageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [hasStartedPlayback, setHasStartedPlayback] = useState(Platform.OS !== 'web');
 
   useEffect(() => {
-    if (currentMedia.type === 'video') {
+    if (currentMedia.type === 'video' && hasStartedPlayback) {
       currentPlayer.play();
     }
-  }, [currentMedia, currentPlayer]);
+  }, [currentMedia, currentPlayer, hasStartedPlayback]);
 
   const contentPlatformStyle = Platform.select({
     android: {
@@ -69,6 +86,38 @@ export default function Testing3() {
   useEffect(() => {
     let disposed = false;
 
+    const preload = async (player: typeof player1, mediaIndex: number | null) => {
+      if (mediaIndex === null) {
+        return true;
+      }
+
+      const playerIndex = player === player1 ? 0 : 1;
+      if (
+        playerMediaIndexes.current[playerIndex] === mediaIndex ||
+        loadingMediaIndexes.current[playerIndex] === mediaIndex
+      ) {
+        return true;
+      }
+
+      loadingMediaIndexes.current[playerIndex] = mediaIndex;
+      try {
+        await player.replaceAsync(mediaItems[mediaIndex].source);
+        if (disposed) {
+          return false;
+        }
+
+        playerMediaIndexes.current[playerIndex] = mediaIndex;
+        playerEnded.current[playerIndex] = false;
+        return true;
+      } catch {
+        return false;
+      } finally {
+        if (loadingMediaIndexes.current[playerIndex] === mediaIndex) {
+          loadingMediaIndexes.current[playerIndex] = null;
+        }
+      }
+    };
+
     const findNextVideoIndex = (startIndex: number) => {
       for (let offset = 0; offset < mediaItems.length; offset += 1) {
         const index = (startIndex + offset) % mediaItems.length;
@@ -80,20 +129,12 @@ export default function Testing3() {
       return null;
     };
 
-    const preload = async (player: typeof player1, mediaIndex: number | null) => {
-      if (mediaIndex === null || playerMediaIndexes.current.includes(mediaIndex)) {
+    const advance = async () => {
+      if (advancing.current || disposed) {
         return;
       }
 
-      await player.replaceAsync(mediaItems[mediaIndex].source);
-      if (!disposed) {
-        const playerIndex = player === player1 ? 0 : 1;
-        playerMediaIndexes.current[playerIndex] = mediaIndex;
-        playerEnded.current[playerIndex] = false;
-      }
-    };
-
-    const advance = async () => {
+      advancing.current = true;
       const endedPlayerIndex = activePlayerIndex.current;
       playerEnded.current[endedPlayerIndex] = true;
       const nextMediaIndex = (currentMediaIndex.current + 1) % mediaItems.length;
@@ -112,13 +153,15 @@ export default function Testing3() {
         setCurrentMedia(nextMedia);
         imageTimer.current = setTimeout(advance, nextMedia.duration);
         void preload(activePlayer, findNextVideoIndex(nextMediaIndex + 1));
+        advancing.current = false;
         return;
       }
 
       const nextPlayerIndex = endedPlayerIndex === 0 ? 1 : 0;
       const nextPlayer = nextPlayerIndex === 0 ? player1 : player2;
-      await preload(nextPlayer, nextMediaIndex);
-      if (disposed) {
+      const loaded = await preload(nextPlayer, nextMediaIndex);
+      if (!loaded || disposed) {
+        advancing.current = false;
         return;
       }
 
@@ -132,12 +175,13 @@ export default function Testing3() {
       setCurrentPlayer(nextPlayer);
       setCurrentMedia(nextMedia);
       void preload(activePlayer, findNextVideoIndex(nextMediaIndex + 1));
+      advancing.current = false;
     };
-
-    void preload(player2, findNextVideoIndex(1));
 
     const subscription = player1.addListener('playToEnd', advance);
     const subscription2 = player2.addListener('playToEnd', advance);
+
+    void preload(player2, findNextVideoIndex(1));
 
     if (mediaItems[0].type === 'image') {
       imageTimer.current = setTimeout(advance, mediaItems[0].duration);
@@ -171,6 +215,14 @@ export default function Testing3() {
             contentFit="contain"
             style={styles.backgroundVideo}
           />
+        )}
+        {!hasStartedPlayback && (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => setHasStartedPlayback(true)}
+            style={styles.startPlaybackButton}>
+            <Text style={styles.startPlaybackText}>Play videos</Text>
+          </Pressable>
         )}
       </ThemedView>
     );
@@ -245,5 +297,17 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
+  },
+  startPlaybackButton: {
+    position: 'absolute',
+    paddingHorizontal: Spacing.four,
+    paddingVertical: Spacing.three,
+    borderRadius: Spacing.two,
+    backgroundColor: '#000000cc',
+  },
+  startPlaybackText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
