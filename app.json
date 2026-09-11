@@ -9,11 +9,9 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "icon": "./assets/expo.icon",
-      "supportsTV": true,
       "bundleIdentifier": "com.stinus0.TestApptest"
     },
     "android": {
-      "supportsTV": true,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

@@ -7,15 +7,21 @@ import { initialVideoSource, mediaItems, type MediaItem } from './media';
 export function useMediaPlayback(cachedVideoSource?: string) {
   const player1 = useVideoPlayer(initialVideoSource, configurePlayer);
   const player2 = useVideoPlayer(null, configurePlayer);
+
   const [playlist, setPlaylist] = useState(mediaItems);
+
   const [currentPlayer, setCurrentPlayer] = useState(player1);
   const [currentMedia, setCurrentMedia] = useState<MediaItem>(playlist[0]);
+
   const activePlayerIndex = useRef(0);
   const currentMediaIndex = useRef(0);
   const playerMediaIndexes = useRef<(number | null)[]>([0, null]);
   const loadingMediaIndexes = useRef<(number | null)[]>([0, null]);
+  const preloadGenerations = useRef([0, 0]);
+
   const playerEnded = useRef([false, false]);
   const advancing = useRef(false);
+
   const imageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [hasStartedPlayback, setHasStartedPlayback] = useState(Platform.OS !== 'web');
 
@@ -31,14 +37,22 @@ export function useMediaPlayback(cachedVideoSource?: string) {
 
   useEffect(() => {
     let disposed = false;
+    
     const preload = async (player: typeof player1, mediaIndex: number | null) => {
-      if (mediaIndex === null) return true;
+      if (mediaIndex === null) 
+        return true;
       const playerIndex = player === player1 ? 0 : 1;
-      if (playerMediaIndexes.current[playerIndex] === mediaIndex || loadingMediaIndexes.current[playerIndex] === mediaIndex) return true;
+      const generation = ++preloadGenerations.current[playerIndex];
+
+      if (playerMediaIndexes.current[playerIndex] === mediaIndex || loadingMediaIndexes.current[playerIndex] === mediaIndex) 
+        return true;
       loadingMediaIndexes.current[playerIndex] = mediaIndex;
+
       try {
         await player.replaceAsync(playlist[mediaIndex].source);
-        if (disposed) return false;
+        if (disposed || generation !== preloadGenerations.current[playerIndex]) 
+          return false;
+
         playerMediaIndexes.current[playerIndex] = mediaIndex;
         playerEnded.current[playerIndex] = false;
         return true;
@@ -58,14 +72,20 @@ export function useMediaPlayback(cachedVideoSource?: string) {
     const advance = async () => {
       if (advancing.current || disposed) return;
       advancing.current = true;
+
       const endedPlayerIndex = activePlayerIndex.current;
       playerEnded.current[endedPlayerIndex] = true;
+
       const nextMediaIndex = (currentMediaIndex.current + 1) % playlist.length;
       const nextMedia = playlist[nextMediaIndex];
       currentMediaIndex.current = nextMediaIndex;
-      if (imageTimer.current) clearTimeout(imageTimer.current);
+
+      if (imageTimer.current) 
+        clearTimeout(imageTimer.current);
+
       const activePlayer = endedPlayerIndex === 0 ? player1 : player2;
       activePlayer.pause();
+
       if (nextMedia.type === 'image') {
         setCurrentMedia(nextMedia);
         imageTimer.current = setTimeout(advance, nextMedia.duration);
@@ -73,23 +93,32 @@ export function useMediaPlayback(cachedVideoSource?: string) {
         advancing.current = false;
         return;
       }
+
       const nextPlayerIndex = endedPlayerIndex === 0 ? 1 : 0;
       const nextPlayer = nextPlayerIndex === 0 ? player1 : player2;
+
       if (!(await preload(nextPlayer, nextMediaIndex)) || disposed) {
         advancing.current = false;
         return;
       }
-      if (playerEnded.current[nextPlayerIndex]) nextPlayer.replay();
-      else nextPlayer.play();
+
+      if (playerEnded.current[nextPlayerIndex]) 
+        nextPlayer.replay();
+      else 
+        nextPlayer.play();
       playerEnded.current[nextPlayerIndex] = false;
       activePlayerIndex.current = nextPlayerIndex;
+
       setCurrentPlayer(nextPlayer);
       setCurrentMedia(nextMedia);
+
       void preload(activePlayer, findNextVideoIndex(nextMediaIndex + 1));
       advancing.current = false;
     };
+
     const subscription = player1.addListener('playToEnd', advance);
     const subscription2 = player2.addListener('playToEnd', advance);
+
     void preload(player2, findNextVideoIndex(1));
 
     if (currentMedia.type === 'image') {
@@ -98,6 +127,8 @@ export function useMediaPlayback(cachedVideoSource?: string) {
 
     return () => {
       disposed = true;
+      preloadGenerations.current[0] += 1;
+      preloadGenerations.current[1] += 1;
       subscription.remove();
       subscription2.remove();
       if (imageTimer.current) clearTimeout(imageTimer.current);
