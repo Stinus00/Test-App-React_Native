@@ -2,7 +2,7 @@
   "expo": {
     "name": "Test-App-test",
     "slug": "Test-App-test",
-    "version": "1.0.0",
+    "version": "0.2.0",
     "orientation": "landscape",
     "icon": "./assets/images/icon.png",
     "scheme": "testapptest",

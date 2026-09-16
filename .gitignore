@@ -42,5 +42,8 @@ example
 /ios
 /android
 
+# memory test
+/memory_usage_check
+
 # apks
 *.apk
