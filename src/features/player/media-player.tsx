@@ -28,11 +28,11 @@ export function MediaPlayer() {
 
   return (
     <ThemedView style={[{ backgroundColor: '#0ADD08' }, styles.containerView, styles.contentContainer, contentPlatformStyle]}>
-      {currentMedia.type === 'image' ? (
+      {currentMedia?.type === 'image' ? (
         <Image key={currentMedia.source.toString()} source={currentMedia.source} contentFit="contain" style={styles.backgroundVideo} />
-      ) : (
+      ) : currentMedia ? (
         <VideoView player={currentPlayer} nativeControls={false} playsInline contentFit="contain" style={styles.backgroundVideo} />
-      )}
+      ) : null}
       {!hasStartedPlayback && (
         <Pressable accessibilityRole="button" onPress={() => setHasStartedPlayback(true)} style={styles.startPlaybackButton}>
           <Text style={styles.startPlaybackText}>Play videos</Text>

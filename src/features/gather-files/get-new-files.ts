@@ -86,7 +86,7 @@ export async function downloadFile(_url: string) {
         return src.uri;
     } catch (error) {
         console.error('[get-new-files] Native download failed', error);
-        // throw error;
+        throw error;
     }
 }
 
