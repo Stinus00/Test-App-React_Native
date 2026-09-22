@@ -16,6 +16,8 @@ export function MediaPlayer() {
   //   void (Platform.OS === 'web' ? testWeb() : test()).then(setCachedVideoSource);
   // }, []);
 
+  // downloadFile('https://s3.eu-central-003.backblazeb2.com/bcm-test-stijn/images/208445601-besneeuwde-lekkernijen-kerst-winter-achtergrond-met-sneeuwpop-en-wazig-bokeh-prettige-kerstdagen.jpg');
+
   const { currentPlayer, currentMedia, hasStartedPlayback, setHasStartedPlayback } = useMediaPlayback(cachedVideoSource);
   const insets = useSafeAreaInsets();
   const theme = useTheme();
@@ -25,9 +27,9 @@ export function MediaPlayer() {
   });
 
   return (
-    <ThemedView style={[{ backgroundColor: theme.background }, styles.containerView, styles.contentContainer, contentPlatformStyle]}>
+    <ThemedView style={[{ backgroundColor: '#0ADD08' }, styles.containerView, styles.contentContainer, contentPlatformStyle]}>
       {currentMedia.type === 'image' ? (
-        <Image source={currentMedia.source} contentFit='contain' style={styles.backgroundVideo} />
+        <Image key={currentMedia.source.toString()} source={currentMedia.source} contentFit="contain" style={styles.backgroundVideo} />
       ) : (
         <VideoView player={currentPlayer} nativeControls={false} playsInline contentFit="contain" style={styles.backgroundVideo} />
       )}

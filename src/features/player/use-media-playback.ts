@@ -1,8 +1,9 @@
-import { useVideoPlayer, type VideoPlayer } from 'expo-video';
+import { useVideoPlayer, type VideoPlayer, type VideoSource } from 'expo-video';
 import { useEffect, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 
-import { initialVideoSource, mediaItems, type MediaItem } from './media';
+import { downloadFile } from '../gather-files/get-new-files';
+import { initialVideoSource, mediaItems, testMediaUris, type MediaItem } from './media';
 
 export function useMediaPlayback(cachedVideoSource?: string) {
   const player1 = useVideoPlayer(initialVideoSource, configurePlayer);
@@ -11,13 +12,15 @@ export function useMediaPlayback(cachedVideoSource?: string) {
   const [playlist, setPlaylist] = useState(mediaItems);
 
   const [currentPlayer, setCurrentPlayer] = useState(player1);
-  const [currentMedia, setCurrentMedia] = useState<MediaItem>(playlist[0]);
+  const [currentMedia, setCurrentMedia] = useState<MediaItem>(playlist[0] ?? null as never);
 
   const activePlayerIndex = useRef(0);
   const currentMediaIndex = useRef(0);
   const playerMediaIndexes = useRef<(number | null)[]>([0, null]);
   const loadingMediaIndexes = useRef<(number | null)[]>([0, null]);
   const preloadGenerations = useRef([0, 0]);
+  const preloadPromises = useRef<(Promise<boolean> | null)[]>([null, null]);
+
 
   const playerEnded = useRef([false, false]);
   const advancing = useRef(false);
@@ -36,32 +39,98 @@ export function useMediaPlayback(cachedVideoSource?: string) {
   }, [cachedVideoSource]);
 
   useEffect(() => {
+    if (Platform.OS === 'web') return;
+
+    let cancelled = false;
+    void Promise.all(testMediaUris.map(async (remoteUri) => ({
+      remoteUri,
+      localUri: await downloadFile(remoteUri),
+    }))).then((downloads) => {
+      if (cancelled) return;
+
+      setPlaylist((currentPlaylist) => currentPlaylist.map((media) => {
+        const source = media.type === 'image' ? media.source : null;
+        if (
+          media.type !== 'image' ||
+          typeof source !== 'object' ||
+          source === null ||
+          Array.isArray(source) ||
+          !('uri' in source) ||
+          typeof source.uri !== 'string'
+        ) {
+          return media;
+        }
+
+        const download = downloads.find(({ remoteUri }) => remoteUri === source.uri);
+        return download?.localUri ? { ...media, source: { uri: download.localUri } } : media;
+      }));
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     let disposed = false;
     
-    const preload = async (player: typeof player1, mediaIndex: number | null) => {
-      if (mediaIndex === null) 
-        return true;
+    const preload = async (
+      player: VideoPlayer,
+      mediaIndex: number | null,
+    ) => {
+      if (mediaIndex === null) return false;
+
       const playerIndex = player === player1 ? 0 : 1;
+
+      if (playerMediaIndexes.current[playerIndex] === mediaIndex) {
+        return true;
+      }
+
+      const existing = preloadPromises.current[playerIndex];
+
+      if (existing) {
+        return existing;
+      }
+
       const generation = ++preloadGenerations.current[playerIndex];
 
-      if (playerMediaIndexes.current[playerIndex] === mediaIndex || loadingMediaIndexes.current[playerIndex] === mediaIndex) 
-        return true;
-      loadingMediaIndexes.current[playerIndex] = mediaIndex;
+      const promise = (async () => {
+        try {
+          const media = playlist[mediaIndex];
 
-      try {
-        await player.replaceAsync(playlist[mediaIndex].source);
-        if (disposed || generation !== preloadGenerations.current[playerIndex]) 
+          if (media.type !== 'video') {
+            return false;
+          }
+
+          await player.replaceAsync(media.source as VideoSource);
+
+          if (
+            disposed ||
+            generation !== preloadGenerations.current[playerIndex]
+          ) {
+            return false;
+          }
+
+          playerMediaIndexes.current[playerIndex] = mediaIndex;
+          playerEnded.current[playerIndex] = false;
+
+          return true;
+        } catch {
           return false;
+        }
+      })();
 
-        playerMediaIndexes.current[playerIndex] = mediaIndex;
-        playerEnded.current[playerIndex] = false;
-        return true;
-      } catch {
-        return false;
-      } finally {
-        if (loadingMediaIndexes.current[playerIndex] === mediaIndex) loadingMediaIndexes.current[playerIndex] = null;
-      }
+      preloadPromises.current[playerIndex] = promise;
+
+      promise.finally(() => {
+        if (preloadPromises.current[playerIndex] === promise) {
+          preloadPromises.current[playerIndex] = null;
+        }
+      });
+
+      return promise;
     };
+
     const findNextVideoIndex = (startIndex: number) => {
       for (let offset = 0; offset < playlist.length; offset += 1) {
         const index = (startIndex + offset) % playlist.length;
@@ -69,6 +138,18 @@ export function useMediaPlayback(cachedVideoSource?: string) {
       }
       return null;
     };
+
+    const releaseVideoPlayers = async () => {
+      preloadGenerations.current[0] += 1;
+      preloadGenerations.current[1] += 1;
+      await Promise.all([
+        player1.replaceAsync(null),
+        player2.replaceAsync(null),
+      ]);
+      playerMediaIndexes.current = [null, null];
+      playerEnded.current = [false, false];
+    };
+
     const advance = async () => {
       if (advancing.current || disposed) return;
       advancing.current = true;
@@ -87,9 +168,14 @@ export function useMediaPlayback(cachedVideoSource?: string) {
       activePlayer.pause();
 
       if (nextMedia.type === 'image') {
+        // const inactivePlayer = endedPlayerIndex === 0 ? player2 : player1;
+        // inactivePlayer.pause();
+        await releaseVideoPlayers();
         setCurrentMedia(nextMedia);
+        if (playlist[nextMediaIndex + 1].type === 'video') {
+          void preload(activePlayer, findNextVideoIndex(nextMediaIndex + 1));
+        }
         imageTimer.current = setTimeout(advance, nextMedia.duration);
-        void preload(activePlayer, findNextVideoIndex(nextMediaIndex + 1));
         advancing.current = false;
         return;
       }
@@ -112,17 +198,20 @@ export function useMediaPlayback(cachedVideoSource?: string) {
       setCurrentPlayer(nextPlayer);
       setCurrentMedia(nextMedia);
 
-      void preload(activePlayer, findNextVideoIndex(nextMediaIndex + 1));
+      if (playlist[nextMediaIndex + 1].type === 'video') {
+          void preload(activePlayer, findNextVideoIndex(nextMediaIndex + 1));
+      }
       advancing.current = false;
     };
 
     const subscription = player1.addListener('playToEnd', advance);
     const subscription2 = player2.addListener('playToEnd', advance);
 
-    void preload(player2, findNextVideoIndex(1));
-
     if (currentMedia.type === 'image') {
+      void releaseVideoPlayers();
       imageTimer.current = setTimeout(advance, currentMedia.duration);
+    } else {
+      void preload(player2, findNextVideoIndex(1));
     }
 
     return () => {
@@ -141,8 +230,7 @@ export function useMediaPlayback(cachedVideoSource?: string) {
 function configurePlayer(player: VideoPlayer) {
   player.muted = true;
   player.bufferOptions = {
-    maxBufferBytes: 8 * 1024 * 1024,
     minBufferForPlayback: 1,
-    preferredForwardBufferDuration: 8,
+    preferredForwardBufferDuration: 12,
   };
 }
