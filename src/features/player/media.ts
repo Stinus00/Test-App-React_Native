@@ -23,14 +23,6 @@ const getMediaItem = (uri: string): MediaItem => {
   const isVideoUri = /\.(mp4|mov|m4v|webm|avi)$/i.test(uri);
   const imageTestCase = 'https://s3.eu-central-003.backblazeb2.com/bcm-test-stijn/images/beertje.jpg';
 
-  if(uri === 'https://s3.eu-central-003.backblazeb2.com/bcm-test-stijn/images/beertje.jpg') {
-    return {
-      type: 'image',
-      source: { uri },
-      duration: 20000.0,
-    }; 
-  }
-
   if (isVideoUri) {
     return { type: 'video', source: uri };
   }

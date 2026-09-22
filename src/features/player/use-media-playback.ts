@@ -6,18 +6,17 @@ import { downloadFile } from '../gather-files/get-new-files';
 import { initialVideoSource, mediaItems, testMediaUris, type MediaItem } from './media';
 
 export function useMediaPlayback(cachedVideoSource?: string) {
-  const player1 = useVideoPlayer(initialVideoSource, configurePlayer);
+  const player1 = useVideoPlayer(Platform.OS === 'web' ? initialVideoSource : null, configurePlayer);
   const player2 = useVideoPlayer(null, configurePlayer);
 
-  const [playlist, setPlaylist] = useState(mediaItems);
+  const [playlist, setPlaylist] = useState<MediaItem[]>(Platform.OS === 'web' ? mediaItems : []);
 
   const [currentPlayer, setCurrentPlayer] = useState(player1);
-  const [currentMedia, setCurrentMedia] = useState<MediaItem>(playlist[0] ?? null as never);
+  const [currentMedia, setCurrentMedia] = useState<MediaItem | null>(playlist[0] ?? null);
 
   const activePlayerIndex = useRef(0);
   const currentMediaIndex = useRef(0);
-  const playerMediaIndexes = useRef<(number | null)[]>([0, null]);
-  const loadingMediaIndexes = useRef<(number | null)[]>([0, null]);
+  const playerMediaIndexes = useRef<(number | null)[]>([null, null]);
   const preloadGenerations = useRef([0, 0]);
   const preloadPromises = useRef<(Promise<boolean> | null)[]>([null, null]);
 
@@ -29,6 +28,7 @@ export function useMediaPlayback(cachedVideoSource?: string) {
   const [hasStartedPlayback, setHasStartedPlayback] = useState(Platform.OS !== 'web');
 
   useEffect(() => {
+    if (!currentMedia) return;
     if (currentMedia.type === 'video' && hasStartedPlayback) currentPlayer.play();
   }, [currentMedia, currentPlayer, hasStartedPlayback]);
 
@@ -42,28 +42,22 @@ export function useMediaPlayback(cachedVideoSource?: string) {
     if (Platform.OS === 'web') return;
 
     let cancelled = false;
-    void Promise.all(testMediaUris.map(async (remoteUri) => ({
-      remoteUri,
-      localUri: await downloadFile(remoteUri),
-    }))).then((downloads) => {
+    void Promise.all(testMediaUris.map((remoteUri) => downloadFile(remoteUri))).then((localUris) => {
       if (cancelled) return;
 
-      setPlaylist((currentPlaylist) => currentPlaylist.map((media) => {
-        const source = media.type === 'image' ? media.source : null;
-        if (
-          media.type !== 'image' ||
-          typeof source !== 'object' ||
-          source === null ||
-          Array.isArray(source) ||
-          !('uri' in source) ||
-          typeof source.uri !== 'string'
-        ) {
-          return media;
+      const localPlaylist = mediaItems.map((media, index) => {
+        const localUri = localUris[index];
+
+        if (media.type === 'video') {
+          return { ...media, source: localUri };
         }
 
-        const download = downloads.find(({ remoteUri }) => remoteUri === source.uri);
-        return download?.localUri ? { ...media, source: { uri: download.localUri } } : media;
-      }));
+        return { ...media, source: { uri: localUri } };
+      });
+
+      currentMediaIndex.current = 0;
+      setCurrentMedia(localPlaylist[0] ?? null);
+      setPlaylist(localPlaylist);
     });
 
     return () => {
@@ -72,6 +66,8 @@ export function useMediaPlayback(cachedVideoSource?: string) {
   }, []);
 
   useEffect(() => {
+    if (playlist.length === 0 || !currentMedia) return;
+
     let disposed = false;
     
     const preload = async (
@@ -114,6 +110,14 @@ export function useMediaPlayback(cachedVideoSource?: string) {
           playerMediaIndexes.current[playerIndex] = mediaIndex;
           playerEnded.current[playerIndex] = false;
 
+          if (
+            mediaIndex === currentMediaIndex.current &&
+            playerIndex === activePlayerIndex.current &&
+            hasStartedPlayback
+          ) {
+            player.play();
+          }
+
           return true;
         } catch {
           return false;
@@ -151,7 +155,7 @@ export function useMediaPlayback(cachedVideoSource?: string) {
     };
 
     const advance = async () => {
-      if (advancing.current || disposed) return;
+      if (advancing.current || disposed || playlist.length === 0) return;
       advancing.current = true;
 
       const endedPlayerIndex = activePlayerIndex.current;
@@ -170,10 +174,10 @@ export function useMediaPlayback(cachedVideoSource?: string) {
       if (nextMedia.type === 'image') {
         // const inactivePlayer = endedPlayerIndex === 0 ? player2 : player1;
         // inactivePlayer.pause();
-        await releaseVideoPlayers();
+        // await releaseVideoPlayers();
         setCurrentMedia(nextMedia);
-        if (playlist[nextMediaIndex + 1].type === 'video') {
-          void preload(activePlayer, findNextVideoIndex(nextMediaIndex + 1));
+        if (playlist[(nextMediaIndex + 1) % playlist.length].type === 'video') {
+          void preload(activePlayer, findNextVideoIndex((nextMediaIndex + 1) % playlist.length));
         }
         imageTimer.current = setTimeout(advance, nextMedia.duration);
         advancing.current = false;
@@ -198,8 +202,8 @@ export function useMediaPlayback(cachedVideoSource?: string) {
       setCurrentPlayer(nextPlayer);
       setCurrentMedia(nextMedia);
 
-      if (playlist[nextMediaIndex + 1].type === 'video') {
-          void preload(activePlayer, findNextVideoIndex(nextMediaIndex + 1));
+      if (playlist[(nextMediaIndex + 1) % playlist.length].type === 'video') {
+          void preload(activePlayer, findNextVideoIndex((nextMediaIndex + 1) % playlist.length));
       }
       advancing.current = false;
     };
@@ -208,9 +212,10 @@ export function useMediaPlayback(cachedVideoSource?: string) {
     const subscription2 = player2.addListener('playToEnd', advance);
 
     if (currentMedia.type === 'image') {
-      void releaseVideoPlayers();
+      // void releaseVideoPlayers();
       imageTimer.current = setTimeout(advance, currentMedia.duration);
     } else {
+      void preload(player1, currentMediaIndex.current);
       void preload(player2, findNextVideoIndex(1));
     }
 
